@@ -1,7 +1,6 @@
 package com.emented.tinkoffservice.model;
 
 
-import lombok.AllArgsConstructor;
 import lombok.Value;
 
 @Value
