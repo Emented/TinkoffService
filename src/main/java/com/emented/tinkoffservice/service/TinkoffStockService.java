@@ -1,25 +1,28 @@
 package com.emented.tinkoffservice.service;
 
-import com.emented.tinkoffservice.dto.StocksDTO;
-import com.emented.tinkoffservice.dto.TickersDTO;
+import com.emented.tinkoffservice.dto.*;
 import com.emented.tinkoffservice.exception.StockNotFoundException;
 import com.emented.tinkoffservice.model.Currency;
 import com.emented.tinkoffservice.model.Stock;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import ru.tinkoff.invest.openapi.MarketContext;
 import ru.tinkoff.invest.openapi.OpenApi;
 import ru.tinkoff.invest.openapi.model.rest.MarketInstrument;
 import ru.tinkoff.invest.openapi.model.rest.MarketInstrumentList;
+import ru.tinkoff.invest.openapi.model.rest.Orderbook;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class TinkoffStockService implements StockService {
 
     private final OpenApi openApi;
@@ -66,5 +69,28 @@ public class TinkoffStockService implements StockService {
                         Currency.valueOf(element.getCurrency().getValue()),
                         "TINKOFF")).toList();
         return new StocksDTO(stocks);
+    }
+
+    @Async
+    public CompletableFuture<Optional<Orderbook>> getOrderbookByFigi(String figi) {
+        CompletableFuture<Optional<Orderbook>> orderbook = openApi.getMarketContext().getMarketOrderbook(figi, 0);
+        log.info("Getting price {} from Tinkoff", figi);
+        return orderbook;
+    }
+
+    @Override
+    public StocksPricesDTO getPrices(FigiesDTO figiesDTO) {
+        long start = System.currentTimeMillis();
+        List<CompletableFuture<Optional<Orderbook>>> orderbooks = new ArrayList<>();
+        figiesDTO.getFigies().forEach(figi -> orderbooks.add(getOrderbookByFigi(figi)));
+        List<StockPrice> stockPrices = orderbooks.stream()
+                .map(CompletableFuture::join)
+                .map(ob -> ob.orElseThrow(() -> new StockNotFoundException("Stock not found.")))
+                .map(ob -> new StockPrice(
+                        ob.getFigi(),
+                        ob.getLastPrice().doubleValue()))
+                .toList();
+        log.info("Time - {}", System.currentTimeMillis() - start);
+        return new StocksPricesDTO(stockPrices);
     }
 }
